@@ -1,0 +1,185 @@
+  Recently, I have been reading an interesting paper related to the capacity of subway stations（Xu X and Liu J, 2014）. It refers to the algorithm proposed in the paper 'Approximate analysis of M/G/c/c state-dependent queueing networks' for calculating performance indicators of queuing networks. However, I failed to master it even reading the original paper. After contacting Professor Cruz, the corresponding author of the paper, and receiving crucial help, I seem to have successfully replicated the content of the fifth section of the paper. Therefore, I decided to document and share it here, hoping to help more people.
+
+Codes:
+import pandas as pd
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+
+def ET1(length,V1):
+    return length/V1
+
+def Limiting_probabilities(capacity, avgT1, gamma, beta, Lambda):
+    nf = [0] * (capacity + 1)
+    for j in range(1, capacity + 1):
+        nf[j] = j * math.exp(-pow((j-1)/beta,gamma))
+
+    ## enf = (lambda*E[T1])/(i*f(i))
+    enf = [Lambda * avgT1] * (capacity + 1)
+    for j in range(1, capacity + 1):
+        enf[j] = enf[j]/nf[j]
+
+    ## p[j] = ((lambda*E[T1])/(j*f(j)))*……*((lambda*E[T1])/(1*f(1)))
+    p = [1] * (capacity + 1)
+    for j in range(1, capacity + 1):
+        for i in range(1, j+1):
+            p[j] = p[j]*enf[i]
+
+    p[0] = 0
+    p0 =  1/(1+sum(p))
+
+    pn = [0] * (capacity+1)
+    for i in range(1,capacity+1):
+        pn[i] = p[i]*p0
+    
+    pn[0] = p0
+    
+    return pn
+
+def Gamma(V1, a, b, Va, Vb):
+    return (math.log((math.log(Va/V1))/(math.log(Vb/V1))))/(math.log((a-1)/(b-1)))
+
+def Beta(gamma, V1, a, Va):
+    return (a-1)/pow(math.log(V1/Va), gamma)
+
+def Preformance(density, length, width, capacity, V1, a, b, Va, Vb, gamma, beta, corridors_lambda):
+    avgT1 = ET1(length, V1)
+    # pre-evaluation algorithm
+    corridors_pn = Limiting_probabilities(capacity,avgT1,gamma,beta,corridors_lambda)
+    # compute performance measures of corridors
+    corridors_pc = corridors_pn[capacity]
+    corridors_theta = corridors_lambda * (1-corridors_pc)
+    corridors_L = 0
+    for n in range(0,capacity+1):
+        corridors_L += n*corridors_pn[n]
+    corridors_W = corridors_L/corridors_theta
+
+    corridors_lambda = {index: corridors_lambda for index in range(11, 21)}
+    corridors_pc = {index: corridors_pc for index in range(11, 21)}
+    corridors_theta = {index: corridors_theta for index in range(11, 21)}
+    corridors_L = {index: corridors_L for index in range(11, 21)}
+    corridors_W = {index: corridors_W for index in range(11, 21)}
+
+    # initialize preformance measures of stairwellls
+    # set up the virtual 11th floor
+    stairwells_lambda = {index: 0 for index in range(1, 12)}
+    stairwells_pc = {index: 0 for index in range(1, 12)}
+    stairwells_theta = {index: 0 for index in range(1, 12)}
+    stairwells_L = {index: 0 for index in range(1, 12)}
+    stairwells_W = {index: 0 for index in range(1, 12)}
+
+    # compute preformance measures of stairwells
+    # start from 10th floor
+    for i in range(10,0,-1):
+        # record the arrival rate of each stairwell which is importment in evaluation algorithm
+        stairwells_lambda[i] = corridors_theta[i+10] + stairwells_theta[i+1]
+
+        stairwells_pn = Limiting_probabilities(capacity, avgT1, gamma, beta, stairwells_lambda[i])
+
+        stairwells_pc[i] = stairwells_pn[capacity]
+        stairwells_theta[i] = stairwells_lambda[i]*(1-stairwells_pc[i])
+        for n in range(0,capacity+1):
+            stairwells_L[i] += n*stairwells_pn[n]
+        stairwells_W[i] = stairwells_L[i]/stairwells_theta[i]
+        
+    # evaluation algorithm
+    # start from 1st floor
+    for i in range(1, 10):
+        # seek flow conservation
+        while stairwells_theta[i+1] + corridors_theta[i+10] >= stairwells_theta[i]:
+            avgT1 += 0.01
+
+            stairwells_pn = Limiting_probabilities(capacity, avgT1, gamma, beta, stairwells_lambda[i+1])
+
+            stairwells_pc[i+1] = stairwells_pn[capacity]
+            stairwells_theta[i+1] = stairwells_lambda[i+1] * (1-stairwells_pc[i+1])
+            stairwells_L[i+1] = 0
+            for n in range(0,capacity+1):
+                stairwells_L[i+1] += n * stairwells_pn[n]
+            stairwells_W[i+1] = stairwells_L[i+1] / stairwells_theta[i+1]
+
+            corridors_pn = Limiting_probabilities(capacity, avgT1, gamma, beta, corridors_lambda[i+10])
+            corridors_pc[i+10] = corridors_pn[capacity]
+            corridors_theta[i+10] = corridors_lambda[i+10] * (1-corridors_pc[i+10])
+            corridors_L[i+10] = 0
+            for n in range(0,capacity+1):
+                corridors_L[i+10] += n * corridors_pn[n]
+            corridors_W[i+10] = corridors_L[i+10] / corridors_theta[i+10]
+
+    # end with 10th floor
+    i += 1
+    while stairwells_theta[i+1] + corridors_theta[i+10] >= stairwells_theta[i]:
+        avgT1 += 0.01
+        corridors_pn = Limiting_probabilities(capacity, avgT1, gamma, beta, corridors_lambda[i+10])
+        corridors_pc[i+10] = corridors_pn[capacity]
+        corridors_theta[i+10] = corridors_lambda[i+10] * (1-corridors_pc[i+10])
+        corridors_L[i+10] = 0
+        for n in range(0,capacity+1):
+            corridors_L[i+10] += n * corridors_pn[n]
+        corridors_W[i+10] = corridors_L[i+10] / corridors_theta[i+10]
+
+    return stairwells_pc, stairwells_theta, stairwells_L, stairwells_W, corridors_pc, corridors_theta, corridors_L, corridors_W
+
+density = 5
+length = 8.5
+width = 1.2
+capacity = 51
+
+V1 = 1.5
+a = 2*length*width
+b = 4*length*width
+Va = 0.64
+Vb = 0.25
+gamma = Gamma(V1, a, b, Va, Vb)
+beta = Beta(gamma, V1, a, Va)
+
+corridors_lambda = 0.125
+stairwells1_pc, stairwells1_theta, stairwells1_L, stairwells1_W, corridors1_pc, corridors1_theta, corridors1_L, corridors1_W = Preformance(density, length, width, capacity, V1, a, b, Va, Vb, gamma, beta, corridors_lambda)
+
+corridors_lambda = 0.25
+stairwells2_pc, stairwells2_theta, stairwells2_L, stairwells2_W, corridors2_pc, corridors2_theta, corridors2_L, corridors2_W = Preformance(density, length, width, capacity, V1, a, b, Va, Vb, gamma, beta, corridors_lambda)
+
+corridors_lambda = 0.5
+stairwells3_pc, stairwells3_theta, stairwells3_L, stairwells3_W, corridors3_pc, corridors3_theta, corridors3_L, corridors3_W = Preformance(density, length, width, capacity, V1, a, b, Va, Vb, gamma, beta, corridors_lambda)
+
+corridors_lambda = 1.0
+stairwells4_pc, stairwells4_theta, stairwells4_L, stairwells4_W, corridors4_pc, corridors4_theta, corridors4_L, corridors4_W = Preformance(density, length, width, capacity, V1, a, b, Va, Vb, gamma, beta, corridors_lambda)
+
+plt.legend()
+
+plt.show()
+
+plt.figure(figsize = (8, 16))
+
+y_axis_data = [i for i in range(1,21)]
+
+floor_theta1 = {**stairwells1_theta,**corridors1_theta}
+x_axis_data1 = [floor_theta1[i] for i in range(1,21)]
+
+floor_theta2 = {**stairwells2_theta,**corridors2_theta}
+x_axis_data2 = [floor_theta2[i] for i in range(1,21)]
+
+floor_theta3 = {**stairwells3_theta,**corridors3_theta}
+x_axis_data3 = [floor_theta3[i] for i in range(1,21)]
+
+floor_theta4 = {**stairwells4_theta,**corridors4_theta}
+x_axis_data4 = [floor_theta4[i] for i in range(1,21)]
+
+plt.plot(x_axis_data1, y_axis_data, 'rs-', alpha=0.5, linewidth=1, label='lambda=0.125')
+plt.plot(x_axis_data2, y_axis_data, 'bo-', alpha=0.5, linewidth=1, label='lambda=0.25')
+plt.plot(x_axis_data3, y_axis_data, 'g^-', alpha=0.5, linewidth=1, label='lambda=0.5')
+plt.plot(x_axis_data4, y_axis_data, 'kv-', alpha=0.5, linewidth=1, label='lambda=1.0')
+
+plt.xlabel('theta')
+plt.ylabel('floor')
+
+plt.xticks(np.arange(0,1.3,0.2))
+plt.yticks(np.arange(0,21,1))
+
+plt.legend()
+
+plt.show()
+
+References：
+Xu X, Liu J, Li H, et al. Analysis of subway station capacity with the use of queueing theory[J]. Transportation research part C: emerging technologies, 2014, 38: 28-43.
+Cruz F R B, Smith J M G. Approximate analysis of M/G/c/c state-dependent queueing networks[J]. Computers & Operations Research, 2007, 34(8): 2332-2344.
